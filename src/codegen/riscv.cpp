@@ -219,6 +219,37 @@ void RISCVCodeGenerator::optimizeDeadCodeElimination() {
     }
 }
 
+// 计算所有作用域中的局部变量数量
+int RISCVCodeGenerator::calculateTotalLocalVariables(Statement* stmt) {
+    if (!stmt) return 0;
+    
+    int count = 0;
+    
+    // 如果是变量声明
+    if (auto varDecl = dynamic_cast<VariableDeclaration*>(stmt)) {
+        count = 1;
+    }
+    // 如果是代码块
+    else if (auto block = dynamic_cast<Block*>(stmt)) {
+        for (const auto& blockStmt : block->statements) {
+            count += calculateTotalLocalVariables(blockStmt.get());
+        }
+    }
+    // 如果是if语句
+    else if (auto ifStmt = dynamic_cast<IfStatement*>(stmt)) {
+        count += calculateTotalLocalVariables(ifStmt->thenStatement.get());
+        if (ifStmt->elseStatement) {
+            count += calculateTotalLocalVariables(ifStmt->elseStatement.get());
+        }
+    }
+    // 如果是while语句
+    else if (auto whileStmt = dynamic_cast<WhileStatement*>(stmt)) {
+        count += calculateTotalLocalVariables(whileStmt->body.get());
+    }
+    
+    return count;
+}
+
 // Visitor 方法实现
 void RISCVCodeGenerator::visit(UnaryExpression& node) {
     node.operand->accept(*this);
@@ -448,19 +479,13 @@ void RISCVCodeGenerator::visit(FunctionDefinition& node) {
     localVariables.clear();
     stackOffset = -20; // 从 -20 开始，为 ra(12), fp(8) 预留空间
     
-    // 先遍历函数体，计算需要的局部变量空间
-    int localVarCount = 0;
-    for (const auto& stmt : node.body->statements) {
-        if (auto varDecl = dynamic_cast<VariableDeclaration*>(stmt.get())) {
-            (void)varDecl; // 避免未使用变量警告
-            localVarCount++;
-        }
-    }
+    // 计算所有作用域中的局部变量数量
+    int totalLocalVarCount = calculateTotalLocalVariables(node.body.get());
     
     // 计算总栈空间：基础帧(16) + 寄存器参数存储 + 栈参数存储 + 局部变量(4*count) + 表达式计算临时空间
     int regParamSize = std::min((int)node.parameters.size(), 8) * 4;  // 前8个参数存储空间
     int stackParamSize = std::max(0, (int)node.parameters.size() - 8) * 4;  // 栈参数存储空间
-    int localSize = 16 + regParamSize + stackParamSize + localVarCount * 4 + 320;  // 增加320字节用于表达式计算
+    int localSize = 16 + regParamSize + stackParamSize + totalLocalVarCount * 4 + 512;  // 增加512字节用于表达式计算
     // 确保 16 字节对齐
     localSize = (localSize + 15) & ~15;
     

@@ -68,5 +68,8 @@ private:
     bool isConstantExpression(Expression* expr);
     int evaluateConstantExpression(Expression* expr);
     
+    // 栈空间计算
+    int calculateTotalLocalVariables(Statement* stmt);
+    
 
 };
